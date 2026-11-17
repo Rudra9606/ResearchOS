@@ -221,3 +221,51 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# ResearchOS specific
+
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+
+# Frontend - Next.js
+node_modules/
+.next/
+out/
+.vercel/
+
+# Python virtual environments
+venv/
+.venv/
+ENV/
+
+# Uploaded documents
+uploads/
+research_data/uploads/
+
+# Generated reports
+generated_reports/
+
+# AI model files
+*.pt
+*.pth
+*.bin
+*.safetensors
+*.onnx
+
+# Vector databases
+chroma_db/
+chroma_data/
+
+# Logs
+logs/
+*.log
+
+# Temporary files
+temp/
+tmp/
+
+# Test results
+test-results/
+playwright-report/
