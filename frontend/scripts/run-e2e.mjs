@@ -27,27 +27,15 @@ async function waitForServer() {
 try {
   await waitForServer();
   const runner = spawn(process.execPath, ["node_modules/playwright/cli.js", "test"], { stdio: ["inherit", "pipe", "pipe"] });
-  let passedSummary = false;
-  let forcedCleanupTimer;
   const finished = new Promise((resolve, reject) => {
     runner.once("error", reject);
     runner.once("exit", (code, signal) => resolve(code ?? (signal ? 1 : 0)));
     runner.stdout.on("data", (chunk) => {
-      const output = chunk.toString();
-      process.stdout.write(output);
-      if (!passedSummary && /\b\d+ passed\b/.test(output)) {
-        passedSummary = true;
-        forcedCleanupTimer = setTimeout(() => {
-          killTree(runner);
-          resolve(0);
-        }, 1_500);
-      }
+      process.stdout.write(chunk);
     });
     runner.stderr.pipe(process.stderr);
   });
   exitCode = await finished;
-  if (forcedCleanupTimer) clearTimeout(forcedCleanupTimer);
-  if (passedSummary && exitCode !== 0) exitCode = 0;
 } catch (error) {
   console.error(error);
 } finally {

@@ -18,6 +18,11 @@ def raise_for_provider_response(response: httpx.Response, provider: str) -> None
         return
     if response.status_code == 429:
         raise ProviderRateLimitError(f"{provider} rate limit exceeded.")
+    if response.status_code in {401, 403}:
+        raise ProviderResponseError(
+            f"{provider} credentials were rejected (HTTP {response.status_code}). "
+            "Check and rotate the configured API key."
+        )
     if response.status_code in {408, 425, 500, 502, 503, 504}:
         raise ProviderUnavailableError(
             f"{provider} is temporarily unavailable (HTTP {response.status_code})."

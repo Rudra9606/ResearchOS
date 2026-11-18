@@ -59,6 +59,17 @@ def test_gemini_initialization_does_not_make_network_request():
     assert provider.timeout_seconds == 60.0
 
 
+def test_gemini_project_default_is_supported_model():
+    settings = Settings(
+        DATABASE_URL="postgresql+psycopg://db",
+        SECRET_KEY="secret",
+        LLM_PROVIDER="gemini",
+        GEMINI_API_KEY="test-key",
+        _env_file=None,
+    )
+    assert settings.GEMINI_MODEL == "gemini-3.5-flash-lite"
+
+
 def test_ollama_initialization():
     provider = OllamaProvider(
         base_url="http://localhost:11434/",

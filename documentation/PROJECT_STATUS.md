@@ -47,6 +47,9 @@ See [FINAL_BACKEND_STATUS.md](FINAL_BACKEND_STATUS.md) for architecture, startup
 
 ## Known limits
 
+- Provider configuration: project defaults use `gemini-3.5-flash-lite`, verified against Google’s official Gemini model documentation. The ignored local `.env` is not modified and remains to be reviewed for stale/placeholder values.
+- The Tavily live check previously returned HTTP 401; the configured key may be invalid or expired and must be corrected or rotated by the repository owner.
+- Semantic Scholar is optional and was not live-verified with an API key. Unauthenticated use is subject to rate limits; configure `SEMANTIC_SCHOLAR_API_KEY` for higher allowance.
 - External providers and downloaded embedding/reranker models were not live-tested; mocked provider paths are tested.
 - The legacy endpoints remain synchronous. Durable jobs provide at-least-once processing; provider calls cannot be interrupted mid-request, and cancellation takes effect at agent/chunk boundaries.
 - Conversation turns use project-scoped document RAG and persist the answer with citations; general assistant chat beyond indexed project evidence is not provided.

@@ -35,6 +35,14 @@ Only the web service publishes a port in `compose.yaml`. The browser talks to th
 
 To stop without deleting persisted data, run `docker compose --env-file .env.docker down`. Do not use `down -v` unless you intentionally want to destroy the local database and uploaded artifacts.
 
+## Provider configuration
+
+- The project default is `gemini-3.5-flash-lite`, a stable model listed in Google's official [Gemini API model documentation](https://ai.google.dev/gemini-api/docs/models/gemini-3.5-flash-lite). The earlier 2.5 Flash model is deprecated and should not be used for new defaults.
+- Gemini live calls require `GEMINI_API_KEY`; the key must not be committed or copied into documentation.
+- Tavily live calls require a valid `TAVILY_API_KEY`. An earlier live check returned HTTP 401, so the key must be corrected or rotated before live verification. HTTP 401/403 provider responses are surfaced as credential rejection without dumping response payloads or secrets.
+- Semantic Scholar is optional and can operate unauthenticated, but no-key requests are subject to rate limits. Set `SEMANTIC_SCHOLAR_API_KEY` only when a valid key is available. Crossref and arXiv can continue without provider keys, subject to network access and their public API policies.
+- Crossref should receive `CROSSREF_MAILTO` as the operator contact for polite-pool identification; it may remain empty for basic use.
+
 ## Secrets and storage
 
 - Keep `.env.docker`, backend `.env`, and frontend `.env.local` out of source control. Set production secrets through the hosting provider's secret manager.

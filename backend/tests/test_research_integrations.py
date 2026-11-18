@@ -32,6 +32,19 @@ def test_tavily_requires_api_key():
         run(service.search("quantum computing"))
 
 
+def test_tavily_http_401_is_reported_as_rejected_credentials():
+    async def handler(request):
+        return httpx.Response(401, json={"error": "invalid api key"})
+
+    service = WebResearchService(
+        api_key="test-key",
+        transport=httpx.MockTransport(handler),
+        max_retries=0,
+    )
+    with pytest.raises(ProviderResponseError, match="credentials were rejected"):
+        run(service.search("quantum computing"))
+
+
 def test_tavily_normalizes_and_deduplicates_results():
     async def handler(request):
         body = await request.aread()

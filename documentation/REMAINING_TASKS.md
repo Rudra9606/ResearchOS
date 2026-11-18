@@ -11,6 +11,9 @@ Updated 2026-11-19 after implementing the frontend, project knowledge graph, and
 - [x] PostgreSQL-backed research/document jobs with a separate worker, polling, cancellation, retries, and expired-lease recovery. Existing synchronous routes remain available.
 - [x] Single-host Docker Compose baseline for PostgreSQL with pgvector, FastAPI, and Next.js, with persistent local database, files, reports, and model cache volumes.
 - [x] Deployment, upgrade/rollback, secret-handling, and user guides.
+- [x] Updated project/default examples from stale Gemini model names to the official stable `gemini-3.5-flash-lite` model. The actual ignored `.env` was not changed.
+- [x] Added provider credential rejection handling that reports HTTP 401/403 responses without exposing secrets or response payloads.
+- [x] Documented Tavily HTTP 401 and Semantic Scholar rate-limit/optional-key behavior.
 
 ## Remaining before a production release
 
@@ -29,8 +32,13 @@ These items need an architectural implementation or an external staging/operatio
 ## External requirements
 
 - A local Docker daemon is required to execute the Compose deployment.
-- Valid provider credentials and network access are required for live integrations.
+- Valid Gemini API access and network access are required for a live Gemini check.
+- The Tavily key must be corrected or rotated because an earlier live check returned HTTP 401.
+- Semantic Scholar is optional; configure `SEMANTIC_SCHOLAR_API_KEY` if a key is available and higher/owned rate-limit allowance is required. Crossref and arXiv require network access but no project-specific key.
+- Docker access on the host is required to build, boot, and verify the Compose baseline.
 - A provisioned staging environment and an explicit deployment target are required to perform the release exercises above.
+- Staging/production needs: TLS ingress, managed or staging PostgreSQL, persistent upload/report storage, secret manager, backup/restore tooling, monitoring/alerts, operational ownership, and deployment approval.
+- The repository owner must review and, if needed, replace values in the ignored local `backend/.env`; this session did not overwrite it and did not expose any secret values.
 - No provider keys, database passwords, cloud account credentials, or deployment approvals are stored in this repository.
 
 ## Latest local verification
