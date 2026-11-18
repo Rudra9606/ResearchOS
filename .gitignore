@@ -269,3 +269,11 @@ tmp/
 # Test results
 test-results/
 playwright-report/
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# Python virtual environments
+.venv/
+venv/
