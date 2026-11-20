@@ -5,12 +5,15 @@ from pydantic import Field, field_validator
 class Settings(BaseSettings):
 
     DATABASE_URL: str
+    TEST_DATABASE_URL: str | None = None
 
     SECRET_KEY: str
 
     ALGORITHM: str = "HS256"
 
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+    REFRESH_TOKEN_EXPIRE_DAYS: int = 7
+    CORS_ORIGINS: str = "http://localhost:3000,http://127.0.0.1:3000"
 
     # LLM Provider Configuration
     LLM_PROVIDER: str = "gemini"  # "gemini" or "ollama"
@@ -57,6 +60,16 @@ class Settings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8"
     )
+
+    @field_validator("SECRET_KEY")
+    @classmethod
+    def validate_secret_key(cls, value: str) -> str:
+        normalized = value.strip()
+        if len(normalized) < 32:
+            raise ValueError("SECRET_KEY must contain at least 32 characters.")
+        if normalized in {"replace-with-a-long-random-secret", "PASTE_YOUR_GENERATED_SECRET_HERE", "change-me"}:
+            raise ValueError("SECRET_KEY must not use a placeholder value.")
+        return normalized
 
     @field_validator("LLM_PROVIDER")
     @classmethod

@@ -11,10 +11,36 @@ type GraphData = { nodes: Item[]; edges: Item[] };
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function api<T = any>(path: string, init: RequestInit = {}): Promise<T> {
-  const response = await fetch(`/api/${path.replace(/^\//, "")}`, { ...init, cache: "no-store" });
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), 25_000);
+  let response: Response;
+  try {
+    response = await fetch(`/api/${path.replace(/^\//, "")}`, {
+      ...init,
+      cache: "no-store",
+      signal: init.signal || controller.signal,
+    });
+  } catch (issue) {
+    if (issue instanceof DOMException && issue.name === "AbortError") {
+      throw new Error("The request timed out. Please verify that the backend and database are available.");
+    }
+    throw issue;
+  } finally {
+    window.clearTimeout(timeout);
+  }
   if (!response.ok) {
     let message = `Request failed (${response.status})`;
-    try { const data = await response.clone().json(); message = data.detail || data.message || message; } catch { /* file or empty response */ }
+    try {
+      const data = await response.clone().json();
+      const detail = data.detail;
+      message = typeof detail === "string"
+        ? detail
+        : typeof data.message === "string"
+          ? data.message
+          : Array.isArray(detail)
+            ? detail.map((item: Item) => item.msg || item.message || String(item)).join(", ")
+            : message;
+    } catch { /* file or empty response */ }
     throw new Error(message);
   }
   if (response.status === 204) return undefined as T;
@@ -52,6 +78,7 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [working, setWorking] = useState(false);
   const [error, setError] = useState("");
+  const [modalError, setModalError] = useState("");
   const [notice, setNotice] = useState("");
   const [modal, setModal] = useState<"project" | "run" | "question" | "" > ("");
   const [editingProject, setEditingProject] = useState<Project | null>(null);
@@ -112,7 +139,12 @@ export default function Home() {
       setUser(users?.[0] || null);
       return loadProjects();
     }).then((project) => project && alive ? loadWorkspace(project) : undefined)
-      .catch(() => { if (alive) setUser(null); }).finally(() => alive && setLoading(false));
+      .catch(() => {
+        if (alive) {
+          setUser(null);
+          setError("");
+        }
+      }).finally(() => alive && setLoading(false));
     return () => { alive = false; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // initial session check
@@ -175,25 +207,47 @@ export default function Home() {
     finally { setWorking(false); }
   }
 
-  async function logout() { await fetch("/api/logout", { method: "POST" }); setUser(null); setProjects([]); setActiveProject(null); setNotice(""); setTab("overview"); }
+  async function logout() {
+    try {
+      await fetch("/api/logout", { method: "POST", cache: "no-store" });
+    } catch {
+      // Local sign-out must still complete even if the proxy is unavailable.
+    } finally {
+      setUser(null);
+      setProjects([]);
+      setActiveProject(null);
+      setRuns([]);
+      setDocuments([]);
+      setSources([]);
+      setClaims([]);
+      setReports([]);
+      setExecutions([]);
+      setConversations([]);
+      setSelectedConversation(null);
+      setConversationMessages([]);
+      setNotice("");
+      setError("");
+      setTab("overview");
+    }
+  }
 
   async function createProject(event: FormEvent<HTMLFormElement>) {
     if (editingProject) return updateProject(event);
-    event.preventDefault(); setWorking(true); setError("");
+    event.preventDefault(); setWorking(true); setModalError("");
     const data = new FormData(event.currentTarget);
     try { const project = await api<Project>("projects/", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ title: data.get("title"), research_topic: data.get("topic"), description: data.get("description") || null }) }); const updated = await loadProjects(project.id); await loadWorkspace(updated); setModal(""); setTab("overview"); setNotice("Project created."); }
-    catch (e) { setError((e as Error).message); } finally { setWorking(false); }
+    catch (e) { setModalError((e as Error).message); } finally { setWorking(false); }
   }
 
   async function updateProject(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault(); if (!editingProject) return; setWorking(true); setError("");
+    event.preventDefault(); if (!editingProject) return; setWorking(true); setModalError("");
     const form = new FormData(event.currentTarget);
     try {
       const updated = await api<Project>(`projects/${editingProject.id}`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ title: form.get("title"), research_topic: form.get("topic"), description: form.get("description") || null }) });
       setProjects((items) => items.map((item) => item.id === updated.id ? updated : item));
       if (activeProject?.id === updated.id) { setActiveProject(updated); await loadWorkspace(updated); }
       setModal(""); setProjectEditingOpen(false); setEditingProject(null); setNotice("Project updated.");
-    } catch (issue) { setError((issue as Error).message); } finally { setWorking(false); }
+    } catch (issue) { setModalError((issue as Error).message); } finally { setWorking(false); }
   }
 
   async function deleteProject(project: Project) {
@@ -244,10 +298,10 @@ export default function Home() {
   }
 
   async function createRun(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault(); if (!activeProject) return; setWorking(true); setError("");
+    event.preventDefault(); if (!activeProject) return; setWorking(true); setModalError("");
     const data = new FormData(event.currentTarget);
     try { const run = await api<Item>("research-runs/", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project_id: activeProject.id, research_topic: data.get("topic"), research_depth: data.get("depth") }) }); setSelectedRun(run); setModal(""); await loadWorkspace(activeProject, run); setTab("research"); setNotice("Research run created."); }
-    catch (e) { setError((e as Error).message); } finally { setWorking(false); }
+    catch (e) { setModalError((e as Error).message); } finally { setWorking(false); }
   }
 
   async function executeRun(run: Item) {
@@ -343,7 +397,9 @@ export default function Home() {
   const title = nav.find((item) => item.key === tab)?.label || "Overview";
   const filteredProjects = projects.filter((project) => `${project.title} ${project.research_topic}`.toLowerCase().includes(search.toLowerCase()));
 
-  return <main className="app-shell"><aside className="sidebar"><a className="brand" href="#" onClick={(e) => { e.preventDefault(); setTab("overview"); }}><span className="brand-mark">R</span><span>ResearchOS</span></a><div className="workspace-label">WORKSPACE</div><nav className="side-nav">{nav.map((item) => <button key={item.key} className={`nav-item ${tab === item.key ? "active" : ""}`} onClick={() => setTab(item.key)}><span className="nav-icon">{item.icon}</span>{item.label}{item.key === "projects" && <span className="nav-count">{projects.length}</span>}</button>)}</nav><div className="sidebar-bottom"><div className="help-card"><span className="help-symbol">✳</span><strong>Research, with clarity.</strong><p>Every claim connected to its source.</p></div><button className="profile" onClick={logout}><span className="avatar">{initials(user.name)}</span><span className="profile-text"><strong>{user.name}</strong><small>{user.email}</small></span><span className="logout-mark" title="Sign out">↗</span></button></div></aside>
+  const changeTab = (nextTab: Tab) => { setError(""); setNotice(""); setTab(nextTab); };
+
+  return <main className="app-shell"><aside className="sidebar"><a className="brand" href="#" onClick={(e) => { e.preventDefault(); changeTab("overview"); }}><span className="brand-mark">R</span><span>ResearchOS</span></a><div className="workspace-label">WORKSPACE</div><nav className="side-nav">{nav.map((item) => <button key={item.key} className={`nav-item ${tab === item.key ? "active" : ""}`} onClick={() => changeTab(item.key)}><span className="nav-icon">{item.icon}</span>{item.label}{item.key === "projects" && <span className="nav-count">{projects.length}</span>}</button>)}</nav><div className="sidebar-bottom"><div className="help-card"><span className="help-symbol">✳</span><strong>Research, with clarity.</strong><p>Every claim connected to its source.</p></div><button className="profile" onClick={logout}><span className="avatar">{initials(user.name)}</span><span className="profile-text"><strong>{user.name}</strong><small>{user.email}</small></span><span className="logout-mark" title="Sign out">↗</span></button></div></aside>
     <section className="main-area"><header className="topbar"><div className="breadcrumb"><span>Workspace</span><b>/</b><strong>{title}</strong></div><div className="top-actions"><span className="connection"><i/> API connected</span><button className="avatar small" onClick={logout} title="Sign out">{initials(user.name)}</button></div></header><div className="content"><div className="page-heading"><div><span className="eyebrow">{tab === "overview" ? "YOUR RESEARCH DESK" : "WORKSPACE"}</span><h1>{tab === "overview" ? `Good to see you, ${user.name.split(" ")[0]}.` : title}</h1><p>{tab === "overview" ? "A clear view of the work in progress." : activeProject ? <>Working in <strong>{activeProject.title}</strong></> : "Choose a project to get started."}</p></div><div className="heading-actions">{activeProject && <button className="button secondary" onClick={() => setModal("question")}>Ask your documents</button>}{tab === "history" ? <button className="button primary" disabled={!activeProject || working} onClick={createConversation}>New conversation</button> : <button className="button primary" onClick={() => setModal(tab === "research" ? "run" : "project")}>{tab === "research" ? "New research run" : "New project"}</button>}</div></div>
       {(error || notice) && <div className={`alert ${error ? "error" : "success"}`} role="status">{error || notice}<button onClick={() => { setError(""); setNotice(""); }}>×</button></div>}
       {!projects.length && <section className="empty-hero"><div className="empty-art"><div className="art-ring ring-a"/><div className="art-ring ring-b"/><span>✳</span></div><span className="eyebrow">A GOOD PLACE TO BEGIN</span><h2>Start with a question worth answering.</h2><p>Create a project, collect your documents, then launch a research run to gather sources and verified claims.</p><button className="button primary" onClick={() => setModal("project")}>Create your first project <span>→</span></button></section>}
@@ -361,7 +417,7 @@ export default function Home() {
         </section><aside className="panel side-panel"><div className="panel-head"><div><span className="eyebrow">PROJECT SNAPSHOT</span><h3>{activeProject?.title || "Workspace"}</h3></div><span className="live-dot"/></div><p className="snapshot-topic">{activeProject?.research_topic || "Select a project to see its research snapshot."}</p><div className="snapshot-stats"><div><strong>{runs.length}</strong><small>Runs</small></div><div><strong>{documents.length}</strong><small>Documents</small></div><div><strong>{sources.length}</strong><small>Sources</small></div></div><div className="snapshot-divider"/><div className="snapshot-section"><span className="eyebrow">LATEST RUN</span>{selectedRun ? <><strong className="latest-topic">{selectedRun.research_topic}</strong><div className="latest-meta"><span className={`status-pill ${selectedRun.status === "completed" ? "done" : ""}`}>{selectedRun.status || "created"}</span><span>{String(selectedRun.research_depth || "standard")} depth</span></div><button className="text-button" onClick={() => setTab("research")}>View run details <span>→</span></button></> : <p className="muted small-text">No research activity yet.</p>}</div><div className="snapshot-section quick-actions"><span className="eyebrow">QUICK ACTIONS</span><button onClick={() => setModal("run")}><span>＋</span> Start a research run <b>→</b></button><button onClick={() => setTab("library")}><span>↑</span> Add documents <b>→</b></button><button onClick={() => setModal("question")}><span>✳</span> Ask your documents <b>→</b></button></div></aside></div></>}
       {tab === "history" && selectedConversation && <form className="conversation-ask" onSubmit={sendConversationMessage}><label htmlFor="conversation-question">Ask this project</label><textarea id="conversation-question" value={conversationQuestion} onChange={(event) => setConversationQuestion(event.target.value)} required maxLength={4000} placeholder="Ask a question grounded in this project's indexed documents…"/><div><span>Answers use project documents and are saved with citations.</span><button className="button primary compact" disabled={working || !conversationQuestion.trim()}>{working ? "Searching…" : "Send question"}</button></div></form>}
       </div></section>
-    {modal && <div className="modal-backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget) setModal(""); }}><section className="modal"><button className="modal-close" onClick={() => setModal("")}>×</button><span className="eyebrow">{modal === "project" ? "NEW WORKSPACE" : modal === "run" ? "RESEARCH WORKFLOW" : "GROUNDED DOCUMENT Q&A"}</span><h2>{modal === "project" ? "Create a project" : modal === "run" ? "Start a research run" : "Ask your documents"}</h2><p className="muted">{modal === "project" ? "Give your research question a dedicated home." : modal === "run" ? "The workflow will collect sources, evaluate evidence and produce findings." : "Answers are grounded in indexed documents from this project."}</p>{error && <div className="alert error">{error}</div>}{modal === "project" ? <form className="stack-form" onSubmit={createProject}><label>Project name<input name="title" required maxLength={200} placeholder="e.g. Climate adaptation policy"/></label><label>Research question<textarea name="topic" required minLength={5} maxLength={500} placeholder="What would you like to investigate?"/></label><label>Description <span className="optional">Optional</span><textarea name="description" placeholder="Scope, context, or notes"/></label><button className="button primary wide" disabled={working}>{working ? "Creating…" : "Create project"}<span>→</span></button></form> : modal === "run" ? <form className="stack-form" onSubmit={createRun}><label>Research question<input name="topic" required minLength={5} maxLength={500} defaultValue={activeProject?.research_topic || ""}/></label><label>Research depth<select name="depth" defaultValue="standard"><option value="basic">Basic · focused scan</option><option value="standard">Standard · balanced evidence</option><option value="comprehensive">Comprehensive · deeper analysis</option></select></label><div className="inline-note">Research runs may take a few minutes and keep this page connected while the workflow runs.</div><button className="button primary wide" disabled={working}>{working ? "Creating…" : "Create research run"}<span>→</span></button></form> : <><form className="stack-form" onSubmit={askQuestion}><label>Your question<textarea value={question} onChange={(e) => setQuestion(e.target.value)} required minLength={1} maxLength={4000} placeholder="What do the uploaded sources say about…?"/></label><button className="button primary wide" disabled={working}>{working ? "Searching evidence…" : "Ask with evidence"}<span>→</span></button></form>{answer && <div className="answer-box"><span className="claim-label">{answer.evidence_sufficient ? "EVIDENCE FOUND" : "LIMITED EVIDENCE"}</span><p>{answer.answer}</p>{answer.citations?.length > 0 && <small>{answer.citations.length} citation(s) included</small>}</div>}</>}</section></div>}
+    {modal && <div className="modal-backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget) { setModal(""); setModalError(""); } }}><section className="modal"><button className="modal-close" onClick={() => { setModal(""); setModalError(""); }}>×</button><span className="eyebrow">{modal === "project" ? "NEW WORKSPACE" : modal === "run" ? "RESEARCH WORKFLOW" : "GROUNDED DOCUMENT Q&A"}</span><h2>{modal === "project" ? "Create a project" : modal === "run" ? "Start a research run" : "Ask your documents"}</h2><p className="muted">{modal === "project" ? "Give your research question a dedicated home." : modal === "run" ? "The workflow will collect sources, evaluate evidence and produce findings." : "Answers are grounded in indexed documents from this project."}</p>{modalError && <div className="alert error">{modalError}</div>}{modal === "project" ? <form className="stack-form" onSubmit={createProject}><label>Project name<input name="title" required maxLength={200} placeholder="e.g. Climate adaptation policy"/></label><label>Research question<textarea name="topic" required minLength={5} maxLength={500} placeholder="What would you like to investigate?"/></label><label>Description <span className="optional">Optional</span><textarea name="description" placeholder="Scope, context, or notes"/></label><button className="button primary wide" disabled={working}>{working ? "Creating…" : "Create project"}<span>→</span></button></form> : modal === "run" ? <form className="stack-form" onSubmit={createRun}><label>Research question<input name="topic" required minLength={5} maxLength={500} defaultValue={activeProject?.research_topic || ""}/></label><label>Research depth<select name="depth" defaultValue="standard"><option value="basic">Basic · focused scan</option><option value="standard">Standard · balanced evidence</option><option value="comprehensive">Comprehensive · deeper analysis</option></select></label><div className="inline-note">Research runs may take a few minutes and keep this page connected while the workflow runs.</div><button className="button primary wide" disabled={working}>{working ? "Creating…" : "Create research run"}<span>→</span></button></form> : <><form className="stack-form" onSubmit={askQuestion}><label>Your question<textarea value={question} onChange={(e) => setQuestion(e.target.value)} required minLength={1} maxLength={4000} placeholder="What do the uploaded sources say about…?"/></label><button className="button primary wide" disabled={working}>{working ? "Searching evidence…" : "Ask with evidence"}<span>→</span></button></form>{answer && <div className="answer-box"><span className="claim-label">{answer.evidence_sufficient ? "EVIDENCE FOUND" : "LIMITED EVIDENCE"}</span><p>{answer.answer}</p>{answer.citations?.length > 0 && <small>{answer.citations.length} citation(s) included</small>}</div>}</>}</section></div>}
     {previewReport && <div className="modal-backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget) setPreviewReport(null); }}><section className="modal report-modal"><button className="modal-close" onClick={() => setPreviewReport(null)}>×</button><span className="eyebrow">REPORT PREVIEW</span><h2>{previewReport.title || "Research report"}</h2><pre className="report-preview">{String(previewReport.content)}</pre><button className="button secondary" onClick={() => downloadReport(previewReport)}>Download report ↓</button></section></div>}
     {tab === "research" && selectedRun && <div className="run-detail"><span className="eyebrow">SELECTED RUN</span><div className="run-detail-head"><div><h2>{selectedRun.research_topic}</h2><p>{selectedRun.current_step || `Status: ${selectedRun.status || "created"}`}</p></div><span className={`status-pill ${selectedRun.status === "completed" ? "done" : ""}`}>{selectedRun.status || "created"}</span></div><div className="progress-track"><span style={{ width: `${Math.max(0, Math.min(100, Number(selectedRun.progress || 0)))}%` }}/></div><div className="progress-caption">{Math.round(Number(selectedRun.progress || 0))}% complete <span>{executions.length} agent activities · {sources.length} sources · {claims.length} claims</span></div>{selectedRun.status === "completed" && reports.length > 0 && <button className="button secondary compact" onClick={() => downloadReport(reports[0])}>Download latest report ↓</button>}{selectedRun.error_message && <div className="alert error">{selectedRun.error_message}</div>}</div>}
      {tab === "research" && selectedRun && <DatasetVisualizations executions={executions}/>}

@@ -165,3 +165,23 @@ test("cancels and retries background document indexing", async ({ page }) => {
   await page.getByRole("button", { name: "Retry indexing" }).click();
   await expect(page.getByText("Document indexing retry queued.")).toBeVisible();
 });
+
+test("preserves the signed-in workspace across a page refresh", async ({ page }) => {
+  await page.route("**/api/users/", (route) => route.fulfill({
+    status: 200,
+    json: [user],
+  }));
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: "Good to see you, Ada." })).toBeVisible();
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "Good to see you, Ada." })).toBeVisible();
+});
+
+test("logout clears the client session and returns to sign-in", async ({ page }) => {
+  await page.goto("/");
+  await page.getByLabel("Email address").fill(user.email);
+  await page.getByLabel("Password").fill("test-password");
+  await page.getByRole("button", { name: "Sign in" }).click();
+  await page.locator('.top-actions button[title="Sign out"]').click();
+  await expect(page.getByRole("heading", { name: "Sign in to your workspace" })).toBeVisible();
+});

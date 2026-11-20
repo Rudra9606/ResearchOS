@@ -1,13 +1,20 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, OperationalError
 
 from app.db.session import get_db
 from app.crud.user import get_user_by_email, create_user
 from app.schemas.user import UserCreate
-from app.schemas.auth import AuthResponse, TokenResponse
-from app.core.security import hash_password, verify_password, create_access_token
+from app.schemas.auth import AuthResponse, RefreshRequest, TokenResponse
+from app.models.user import User
+from app.core.security import (
+    create_access_token,
+    create_refresh_token,
+    decode_refresh_token,
+    hash_password,
+    verify_password,
+)
 
 
 router = APIRouter()
@@ -19,8 +26,13 @@ def register_user(
     db: Session = Depends(get_db)
 ):
     """Register a new user."""
-
-    existing_user = get_user_by_email(db, user_data.email)
+    try:
+        existing_user = get_user_by_email(db, user_data.email)
+    except OperationalError:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Database unavailable. Please try again shortly.",
+        )
 
     if existing_user:
         raise HTTPException(
@@ -41,8 +53,14 @@ def register_user(
             status_code=status.HTTP_409_CONFLICT,
             detail="Email is already registered."
         )
+    except OperationalError:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Database unavailable. Please try again shortly.",
+        )
 
     access_token = create_access_token(user.id)
+    refresh_token = create_refresh_token(user.id)
 
     return AuthResponse(
         message="Registration successful.",
@@ -53,7 +71,8 @@ def register_user(
         },
         token=TokenResponse(
             access_token=access_token,
-            token_type="bearer"
+            token_type="bearer",
+            refresh_token=refresh_token,
         )
     )
 
@@ -64,8 +83,13 @@ def login_user(
     db: Session = Depends(get_db)
 ):
     """Authenticate a user and generate a JWT token."""
-
-    user = get_user_by_email(db, form_data.username)
+    try:
+        user = get_user_by_email(db, form_data.username)
+    except OperationalError:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Database unavailable. Please try again shortly.",
+        )
 
     if not user or not user.password_hash:
         raise HTTPException(
@@ -85,6 +109,7 @@ def login_user(
         )
 
     access_token = create_access_token(user.id)
+    refresh_token = create_refresh_token(user.id)
 
     return AuthResponse(
         message="Login successful.",
@@ -95,6 +120,42 @@ def login_user(
         },
         token=TokenResponse(
             access_token=access_token,
-            token_type="bearer"
+            token_type="bearer",
+            refresh_token=refresh_token,
         )
+    )
+
+
+@router.post("/refresh", response_model=TokenResponse)
+def refresh_access_token(
+    request: RefreshRequest,
+    db: Session = Depends(get_db),
+):
+    """Rotate a refresh token and issue a short-lived access token."""
+
+    from uuid import UUID
+    import jwt
+
+    try:
+        payload = decode_refresh_token(request.refresh_token)
+        user_id = UUID(payload["sub"])
+    except (jwt.InvalidTokenError, ValueError, KeyError, TypeError):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired refresh token.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    user = db.get(User, user_id)
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired refresh token.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    return TokenResponse(
+        access_token=create_access_token(user_id),
+        token_type="bearer",
+        refresh_token=create_refresh_token(user_id),
     )

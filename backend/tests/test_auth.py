@@ -3,7 +3,14 @@
 import pytest
 from datetime import timedelta
 
-from app.core.security import hash_password, verify_password, create_access_token, decode_access_token
+from app.core.security import (
+    hash_password,
+    verify_password,
+    create_access_token,
+    create_refresh_token,
+    decode_access_token,
+    decode_refresh_token,
+)
 
 
 class TestPasswordHashing:
@@ -64,6 +71,17 @@ class TestJWTToken:
         token = create_access_token(uuid.uuid4(), expires_delta=timedelta(seconds=-1))
         with pytest.raises(jwt.ExpiredSignatureError):
             decode_access_token(token)
+
+    def test_refresh_token_is_distinct_from_access_token(self):
+        import uuid
+        import jwt
+        user_id = uuid.uuid4()
+        refresh_token = create_refresh_token(user_id)
+        payload = decode_refresh_token(refresh_token)
+        assert payload["sub"] == str(user_id)
+        assert payload["type"] == "refresh"
+        with pytest.raises(jwt.InvalidTokenError):
+            decode_access_token(refresh_token)
 
     def test_decode_token_with_invalid_subject(self):
         import jwt

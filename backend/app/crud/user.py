@@ -39,7 +39,7 @@ def get_user_by_id(db: Session, user_id: UUID):
 def get_user_by_email(db: Session, email: str):
     """Retrieve a user by email."""
 
-    statement = select(User).where(User.email == email)
+    statement = select(User).where(User.email == email.strip().lower())
     return db.scalar(statement)
 
 

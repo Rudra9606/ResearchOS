@@ -1,4 +1,5 @@
 from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
 from uuid import uuid4
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
@@ -15,6 +16,15 @@ app = FastAPI(
     title="ResearchOS API",
     description="Backend API for the ResearchOS AI Research Platform",
     version="1.0.0",
+)
+
+cors_origins = [origin.strip() for origin in settings.CORS_ORIGINS.split(",") if origin.strip()]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=cors_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 
